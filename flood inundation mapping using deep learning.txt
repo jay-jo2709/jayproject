@@ -1,0 +1,630 @@
+
+Code :
+# import system libs
+import os
+import time
+import glob
+import shutil
+import random
+# import data handling tools
+import cv2
+import PIL
+import numpy as np
+import pandas as pd
+import seaborn as sns
+sns.set_style('darkgrid')
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, classification_report
+# import Deep learning Libraries
+import tensorflow as tf
+from tensorflow import keras
+import tensorflow.image as tfi
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Model, load_model
+from keras.preprocessing.image import load_img, img_to_array
+from tensorflow.keras.layers import Conv2D, MaxPool2D, UpSampling2D, concatenate,
+Activation
+from tensorflow.keras.layers import Layer, Input, Add, Multiply, Dropout, BatchNormalization
+from tensorflow.keras.optimizers import Adam, Adamax
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense,
+Conv2DTranspose
+from tensorflow.keras.layers import Dropout
+from tensorflow.keras.layers import BatchNormalization
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.layers import LSTM, Dense
+#Tranfer learning model
+from tensorflow.keras.applications.vgg16 import VGG16
+# Ignore Warnings
+import warnings
+warnings.filterwarnings("ignore")
+print ('modules loaded')
+def create_data(data_dir):
+image_paths = []
+mask_paths = []
+folds = sorted(os.listdir(data_dir))
+for fold in folds:
+foldpath = os.path.join(data_dir, fold)
+if fold in ['image', 'Image', 'images', 'Images', 'IMAGES']:
+images = sorted(os.listdir(foldpath))
+for image in images:
+fpath = os.path.join(foldpath, image)
+image_paths.append(fpath)
+elif fold in ['labels', 'Labels', 'label', 'Labels', 'LABELS']:
+masks = sorted(os.listdir(foldpath))
+for mask in masks:
+fpath = os.path.join(foldpath, mask)
+mask_paths.append(fpath)
+else:
+continue
+return image_paths, mask_paths
+# function to read an image
+def load_image(image, SIZE):
+return np.round(tfi.resize(img_to_array(load_img(image)) / 255., (SIZE, SIZE)), 4)
+# function to read multiple images
+def load_images(image_paths, SIZE, mask=False, trim=None):
+if trim is not None:
+image_paths = image_paths[:trim]
+if mask:
+images = np.zeros(shape=(len(image_paths), SIZE, SIZE, 1))
+else:
+images = np.zeros(shape=(len(image_paths), SIZE, SIZE, 3))
+for i, image in enumerate(image_paths):
+img = load_image(image, SIZE)
+if mask:
+images[i] = img[:, :, :1]
+else:
+images[i] = img
+return images
+def show_image(image, title=None, cmap=None, alpha=1):
+plt.imshow(image, cmap=cmap, alpha=alpha)
+if title is not None:
+plt.title(title)
+plt.axis('off')
+def show_mask(image, mask, cmap=None, alpha=0.4):
+plt.imshow(image)
+plt.imshow(tf.squeeze(mask), cmap=cmap, alpha=alpha)
+plt.axis('off')
+def show_images(imgs, msks):
+plt.figure(figsize=(13,8))
+for i in range(15):
+plt.subplot(3,5,i+1)
+id = np.random.randint(len(imgs))
+show_mask(imgs[id], msks[id], cmap='binary')
+plt.tight_layout()
+plt.show()
+!pip install zipfile36
+import zipfile
+import os
+zip_file_path = '/content/flood_dataset.zip' # Replace with the actual path to your zip file
+extract_path = '/content/extracted_images' # Replace with your desired extraction path
+with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+zip_ref.extractall(extract_path)
+print(os.listdir(extract_path))
+from PIL import Image
+import matplotlib.pyplot as plt
+# Loop through each class folder
+for class_folder in os.listdir(extract_path):
+class_path = os.path.join(extract_path, class_folder)
+# Get the first 5 image files in the class folder
+image_files = [f for f in os.listdir(class_path) if f.endswith(('.jpg', '.png', '.jpeg'))][:5]
+# Display the images
+fig, axes = plt.subplots(1, 5, figsize=(15, 5)) # Create a figure and subplots for 5 images
+fig.suptitle(f'Class: {class_folder}') # Set the title of the figure
+for i, image_file in enumerate(image_files):
+image_path = os.path.join(class_path, image_file)
+image = Image.open(image_path)
+axes[i].imshow(image) # Display the image in the subplot
+axes[i].axis('off') # Turn off the axis
+axes[i].set_title(image_file) # Set the title of the subplot
+plt.show() # Show the figure
+SIZE = 256
+# get data
+data_dir = '/content/extracted_images'
+image_paths, mask_paths = create_data(data_dir)
+# load images and masks
+imgs = load_images(image_paths, SIZE)
+msks = load_images(mask_paths, SIZE, mask=True)
+# show sample
+show_images(imgs, msks)
+import os
+import matplotlib.pyplot as plt
+from PIL import Image
+def save_combined_images(imgs, msks, output_dir):
+os.makedirs(output_dir, exist_ok=True) # Create the output directory
+for i in range(len(imgs)):
+plt.figure(figsize=(5, 5)) # Create a new figure for each image
+show_mask(imgs[i], msks[i], cmap='binary') # Overlay mask on image
+plt.axis('off') # Turn off axis
+# Save the current figure as an image
+output_path = os.path.join(output_dir, f'combined_image_{i}.png')
+plt.savefig(output_path, bbox_inches='tight', pad_inches=0)
+plt.close() # Close the figure to free up memory
+print(f"Combined images saved to: {output_dir}")
+# --- Usage ---
+SIZE = 256
+data_dir = '/content/extracted_images'
+image_paths, mask_paths = create_data(data_dir)
+imgs = load_images(image_paths, SIZE)
+msks = load_images(mask_paths, SIZE, mask=True)
+output_dir = '/content/combined_images_overlay' # Directory to save combined images
+save_combined_images(imgs, msks, output_dir)
+# Define paths to your datasets
+combined_images_dir = '/content/combined_images_overlay'
+non_flood_images_dir = '/content/extracted_images/non-flood-images'
+unified_data_dir = '/content/combined'
+# Create the unified data directory
+os.makedirs(unified_data_dir, exist_ok=True)
+os.makedirs(os.path.join(unified_data_dir, 'flood'), exist_ok=True)
+os.makedirs(os.path.join(unified_data_dir, 'non_flood'), exist_ok=True)
+# Copy images to the unified directory
+for filename in os.listdir(combined_images_dir):
+shutil.copy(os.path.join(combined_images_dir, filename), os.path.join(unified_data_dir,
+'flood', filename))
+for filename in os.listdir(non_flood_images_dir):
+shutil.copy(os.path.join(non_flood_images_dir, filename), os.path.join(unified_data_dir,
+'non_flood', filename))
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+# Define the CNN model
+model = keras.Sequential(
+[
+keras.Input(shape=(256, 256, 3)), # Input shape for 256x256 RGB images
+layers.Conv2D(32, kernel_size=(3, 3), activation="relu"),
+layers.MaxPooling2D(pool_size=(2, 2)),
+layers.Conv2D(64, kernel_size=(3, 3), activation="relu"),
+layers.MaxPooling2D(pool_size=(2, 2)),
+layers.Flatten(),
+layers.Dropout(0.5), # Add dropout for regularization
+layers.Dense(1, activation="sigmoid"), # Output layer with sigmoid for binary
+classification
+]
+)
+# Compile the model
+model.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+# Print model summary
+model.summary()
+# Define data directories
+data_dir = '/content/combined'
+train_dir = os.path.join(data_dir, 'train')
+val_dir = os.path.join(data_dir, 'validation')
+test_dir = os.path.join(data_dir, 'test')
+# Create directories if they don't exist
+os.makedirs(train_dir, exist_ok=True)
+os.makedirs(val_dir, exist_ok=True)
+os.makedirs(test_dir, exist_ok=True)
+# Split data into train, validation, and test sets
+for class_name in os.listdir(data_dir):
+class_dir = os.path.join(data_dir, class_name)
+# Check if it's a directory and not the 'train', 'validation', or 'test' directory
+if os.path.isdir(class_dir) and class_name not in ['train', 'validation', 'test']:
+images = os.listdir(class_dir)
+np.random.shuffle(images)
+train_split = int(0.7 * len(images))
+val_split = int(0.2 * len(images))
+train_images = images[:train_split]
+val_images = images[train_split:train_split + val_split]
+test_images = images[train_split + val_split:]
+for image in train_images:
+src = os.path.join(class_dir, image)
+dst = os.path.join(train_dir, class_name, image)
+os.makedirs(os.path.dirname(dst), exist_ok=True)
+shutil.copy(src, dst)
+for image in val_images:
+src = os.path.join(class_dir, image)
+dst = os.path.join(val_dir, class_name, image)
+os.makedirs(os.path.dirname(dst), exist_ok=True)
+shutil.copy(src, dst)
+for image in test_images:
+src = os.path.join(class_dir, image)
+dst = os.path.join(test_dir, class_name, image)
+os.makedirs(os.path.dirname(dst), exist_ok=True)
+shutil.copy(src, dst)
+# Data preprocessing and augmentation
+train_datagen = ImageDataGenerator(
+rescale=1./255,
+shear_range=0.2,
+zoom_range=0.2,
+horizontal_flip=True
+)
+test_datagen = ImageDataGenerator(rescale=1./255)
+train_generator = train_datagen.flow_from_directory(
+train_dir,
+target_size=(256, 256),
+batch_size=32,
+class_mode='binary'
+)
+validation_generator = test_datagen.flow_from_directory(
+val_dir,
+target_size=(256, 256),
+batch_size=32,
+class_mode='binary'
+)
+# Train the model
+history = model.fit(
+train_generator,
+steps_per_epoch=train_generator.samples // 32,
+epochs=50,
+validation_data=validation_generator,
+validation_steps=validation_generator.samples // 32,
+)
+def plot_training(hist):
+'''
+This function take training model and plot history of accuracy and losses with the best
+epoch in both of them.
+'''
+# Define needed variables
+tr_acc = hist.history['accuracy']
+tr_loss = hist.history['loss']
+val_acc = hist.history['val_accuracy']
+val_loss = hist.history['val_loss']
+index_loss = np.argmin(val_loss)
+val_lowest = val_loss[index_loss]
+index_acc = np.argmax(val_acc)
+acc_highest = val_acc[index_acc]
+Epochs = [i+1 for i in range(len(tr_acc))]
+loss_label = f'best epoch= {str(index_loss + 1)}'
+acc_label = f'best epoch= {str(index_acc + 1)}'
+# Plot training history
+plt.figure(figsize= (20, 8))
+plt.style.use('fivethirtyeight')
+plt.subplot(1, 2, 1)
+plt.plot(Epochs, tr_loss, 'r', label= 'Training loss')
+plt.plot(Epochs, val_loss, 'g', label= 'Validation loss')
+plt.scatter(index_loss + 1, val_lowest, s= 150, c= 'blue', label= loss_label)
+plt.title('Training and Validation Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.subplot(1, 2, 2)
+plt.plot(Epochs, tr_acc, 'r', label= 'Training Accuracy')
+plt.plot(Epochs, val_acc, 'g', label= 'Validation Accuracy')
+plt.scatter(index_acc + 1 , acc_highest, s= 150, c= 'blue', label= acc_label)
+plt.title('Training and Validation Accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.tight_layout
+plt.show()
+plot_training(history)
+# Evaluate the model on the test set
+test_generator = test_datagen.flow_from_directory(
+test_dir,
+target_size=(256, 256), # Changed target_size to (256, 256) to match training data
+batch_size=32,
+class_mode='binary',
+)
+# Calculate the number of steps needed to cover the entire test set
+steps = test_generator.samples // test_generator.batch_size
+loss, accuracy = model.evaluate(test_generator, steps=steps)
+print('Test accuracy:', accuracy)
+# Assuming 'test_generator' is your test data generator
+predictions = []
+true_classes = []
+# Iterate over the test data generator to get predictions for each image
+for i in range(len(test_generator)):
+batch_images, batch_labels = test_generator[i] # Get a batch of images and labels
+batch_predictions = model.predict(batch_images) # Predict on the batch
+predictions.extend(batch_predictions) # Extend the predictions list
+true_classes.extend(batch_labels) # Extend the true classes list
+# Convert predictions to classes (0 or 1)
+predicted_classes = (np.array(predictions) > 0.6).astype(np.uint8)
+cm = confusion_matrix(true_classes, predicted_classes)
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+xticklabels=['Non-Flood', 'Flood'],
+yticklabels=['Non-Flood', 'Flood'])
+plt.xlabel('Predicted')
+plt.ylabel('True')
+plt.title('Confusion Matrix')
+plt.show()# 1. Define the path to your test dataset
+test_dir = '/content/combined/test' # Replace with your actual test directory
+# 2. Get a list of all image files in the test directory
+image_files = []
+for class_folder in os.listdir(test_dir):
+class_path = os.path.join(test_dir, class_folder)
+for image_file in os.listdir(class_path):
+image_files.append(os.path.join(class_path, image_file))
+# 3. Randomly select an image file
+random_image_path = random.choice(image_files)
+# 4. Load and preprocess the image
+image = load_img(random_image_path, target_size=(256, 256))
+image_array = img_to_array(image) / 255.0
+image_array = np.expand_dims(image_array, axis=0)
+# 5. Make a prediction
+prediction = model.predict(image_array)
+predicted_class = (prediction[0][0] > 0.5).astype(np.uint8)
+# 6. Display the image and prediction
+plt.figure(figsize=(10, 5))
+plt.subplot(1, 2, 1)
+plt.imshow(image)
+plt.title('Random Image')
+plt.axis('off')
+plt.subplot(1, 2, 2)
+plt.imshow(image)
+plt.title(f'Prediction: {"Non-Flood" if predicted_class else "Flood"}')
+plt.axis('off')
+plt.show()
+# 1. Define the path to your test image
+test_image_path = '/content/combined_image_108.png'
+
+# 2. Load and preprocess the image
+image = load_img(test_image_path, target_size=(256, 256))
+image_array = img_to_array(image) / 255.0
+image_array = np.expand_dims(image_array, axis=0)
+
+# 3. Make a prediction
+prediction = model.predict(image_array)
+predicted_class = (prediction[0][0] > 0.5).astype(np.uint8)
+
+# 4. Display the image and prediction
+plt.figure(figsize=(10, 5))
+
+plt.subplot(1, 2, 1)
+plt.imshow(image)
+plt.title('Test Image')
+plt.axis('off')
+
+plt.subplot(1, 2, 2)
+plt.imshow(image)
+plt.title(f'Prediction: {"Non-Flood" if predicted_class else "Flood"}')
+plt.axis('off')
+plt.show()
+base_model = VGG16(weights='imagenet', include_top=False, input_shape=(256, 256, 3))
+for layer in base_model.layers:
+layer.trainable = False
+# 3. Add new classification layers on top
+x = base_model.output
+x = Flatten()(x)
+x = Dense(256, activation='relu')(x)
+x = Dropout(0.5)(x) # Add dropout for regularization
+predictions = Dense(1, activation='sigmoid')(x)
+# 4. Create the final model
+model = Model(inputs=base_model.input, outputs=predictions)
+# 5. Compile the model
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+# 6. Data preprocessing and augmentation (same as before)
+train_datagen = ImageDataGenerator(
+rescale=1./255,
+shear_range=0.2,
+zoom_range=0.2,
+horizontal_flip=True
+)
+test_datagen = ImageDataGenerator(rescale=1./255)
+train_generator = train_datagen.flow_from_directory(
+train_dir,
+target_size=(256, 256),
+batch_size=32,
+class_mode='binary'
+)
+validation_generator = test_datagen.flow_from_directory(
+val_dir,
+target_size=(256, 256),
+batch_size=32,
+class_mode='binary'
+)
+# 7. Train the model
+history = model.fit(
+train_generator,
+steps_per_epoch=train_generator.samples // 32,
+epochs=10, # Adjust as needed
+validation_data=validation_generator,
+validation_steps=validation_generator.samples // 32
+)
+plot_training(history)
+# Evaluate the model on the test set
+test_generator = test_datagen.flow_from_directory(
+test_dir,
+target_size=(256, 256), # Changed target_size to (256, 256) to match training data
+batch_size=32,
+class_mode='binary',
+)
+# Calculate the number of steps needed to cover the entire test set
+steps = test_generator.samples // test_generator.batch_size
+loss, accuracy = model.evaluate(test_generator, steps=steps)
+print('Test accuracy:', accuracy)
+# 1. Define the path to your test dataset
+test_dir = '/content/combined/test' # Replace with your actual test directory
+# 2. Get a list of all image files in the test directory
+image_files = []
+for class_folder in os.listdir(test_dir):
+class_path = os.path.join(test_dir, class_folder)
+for image_file in os.listdir(class_path):
+image_files.append(os.path.join(class_path, image_file))
+# 3. Randomly select an image file
+random_image_path = random.choice(image_files)
+# 4. Load and preprocess the image
+image = load_img(random_image_path, target_size=(256, 256))
+image_array = img_to_array(image) / 255.0
+image_array = np.expand_dims(image_array, axis=0)
+# 5. Make a prediction
+prediction = model.predict(image_array)
+predicted_class = (prediction[0][0] > 0.5).astype(np.uint8)
+# 6. Display the image and prediction
+plt.figure(figsize=(10, 5))
+plt.subplot(1, 2, 1)
+plt.imshow(image)
+plt.title('Random Image')
+plt.axis('off')
+plt.subplot(1, 2, 2)
+plt.imshow(image)
+plt.title(f'Prediction: {"Non-Flood" if predicted_class else "Flood"}')
+plt.axis('off')
+plt.show()
+class EncoderBlock(Layer):
+def __init__(self, filters, rate, pooling=True, **kwargs):
+super(EncoderBlock, self).__init__(**kwargs)
+self.filters = filters
+self.rate = rate
+self.pooling = pooling
+self.c1 = Conv2D(filters, kernel_size=3, strides=1, padding='same', activation='relu', kernel_initializer='he_normal')
+self.drop = Dropout(rate)
+self.c2 = Conv2D(filters, kernel_size=3, strides=1, padding='same', activation='relu', kernel_initializer='he_normal')
+self.pool = MaxPool2D()
+def call(self, X):
+x = self.c1(X)
+x = self.drop(x)
+x = self.c2(x)
+if self.pooling:
+y = self.pool(x)
+return y, x
+else:
+return x
+def get_config(self):
+base_config = super().get_config()
+return {
+**base_config,
+"filters":self.filters,
+'rate':self.rate,
+'pooling':self.pooling
+}
+class DecoderBlock(Layer):
+def __init__(self, filters, rate, **kwargs):
+super(DecoderBlock, self).__init__(**kwargs)
+self.filters = filters
+self.rate = rate
+self.up = UpSampling2D()
+self.net = EncoderBlock(filters, rate, pooling=False)
+def call(self, X):
+X, skip_X = X
+x = self.up(X)
+c_ = concatenate([x, skip_X])
+x = self.net(c_)
+return x
+def get_config(self):
+base_config = super().get_config()
+return {
+**base_config,
+"filters":self.filters,
+'rate':self.rate,
+}
+class AttentionGate(Layer):
+def __init__(self, filters, bn, **kwargs):
+super(AttentionGate, self).__init__(**kwargs)
+self.filters = filters
+self.bn = bn
+self.normal = Conv2D(filters, kernel_size=3, padding='same', activation='relu', kernel_initializer='he_normal')
+self.down = Conv2D(filters, kernel_size=3, strides=2, padding='same', activation='relu', kernel_initializer='he_normal')
+self.learn = Conv2D(1, kernel_size=1, padding='same', activation='sigmoid')
+self.resample = UpSampling2D()
+self.BN = BatchNormalization()
+def call(self, X):
+X, skip_X = X
+x = self.normal(X)
+skip = self.down(skip_X)
+x = Add()([x, skip])
+x = self.learn(x)
+x = self.resample(x)
+f = Multiply()([x, skip_X])
+if self.bn:
+return self.BN(f)
+else:
+return f
+# return f
+def get_config(self):
+base_config = super().get_config()
+return {
+**base_config,
+"filters":self.filters,
+"bn":self.bn
+}
+# Inputs
+input_layer = Input(shape= imgs.shape[-3:])
+# Encoder
+p1, c1 = EncoderBlock(32, 0.1, name="Encoder1")(input_layer)
+p2, c2 = EncoderBlock(64, 0.1, name="Encoder2")(p1)
+p3, c3 = EncoderBlock(128, 0.2, name="Encoder3")(p2)
+p4, c4 = EncoderBlock(256, 0.2, name="Encoder4")(p3)
+# Encoding
+encoding = EncoderBlock(512, 0.3, pooling=False, name="Encoding")(p4)
+# Attention + Decoder
+a1 = AttentionGate(256, bn=True, name="Attention1")([encoding, c4])
+d1 = DecoderBlock(256, 0.2, name="Decoder1")([encoding, a1])
+a2 = AttentionGate(128, bn=True, name="Attention2")([d1, c3])
+d2 = DecoderBlock(128, 0.2, name="Decoder2")([d1, a2])
+a3 = AttentionGate(64, bn=True, name="Attention3")([d2, c2])
+d3 = DecoderBlock(64, 0.1, name="Decoder3")([d2, a3])
+a4 = AttentionGate(32, bn=True, name="Attention4")([d3, c1])
+d4 = DecoderBlock(32,0.1, name="Decoder4")([d3, a4])
+# Output
+output_layer = Conv2D(1, kernel_size=1, activation='sigmoid', padding='same')(d4)
+# Model
+model = Model(inputs= [input_layer], outputs= [output_layer])
+# Compile
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+# Summary
+model.summary()
+import tensorflow as tf
+class MyCallback(tf.keras.callbacks.Callback):
+def __init__(self, model, epochs, ask_epoch):
+super(MyCallback, self).__init__()
+# Assign model directly as an attribute instead of creating a property
+self.model_ = model
+self.epochs = epochs
+self.ask_epoch = ask_epoch
+def on_epoch_end(self, epoch, logs=None):
+if (epoch + 1) % self.ask_epoch == 0:
+user_input = input(f"Epoch {epoch + 1}/{self.epochs} completed. Continue training (y/n)? ")
+if user_input.lower() == 'n':
+print("Stopping training...")
+# Access the model using self.model_
+self.model_.stop_training = True
+batch_size = 32
+epochs = 10
+ask_epoch = 5
+callbacks = [MyCallback(model= model, epochs= epochs, ask_epoch= ask_epoch )]
+# Config Training
+SPE = len(imgs)//batch_size
+# Training
+history = model.fit(
+imgs, msks,
+validation_split=0.2,
+epochs=epochs,
+verbose=1,
+steps_per_epoch=SPE,
+batch_size=batch_size
+)
+plot_training(history)
+# Evaluate the model on the test set
+test_generator = test_datagen.flow_from_directory(
+test_dir,
+target_size=(256, 256), # Changed target_size to (256, 256) to match training data
+batch_size=32,
+class_mode='binary',
+)
+# Calculate the number of steps needed to cover the entire test set
+steps = test_generator.samples // test_generator.batch_size
+loss, accuracy = model.evaluate(test_generator, steps=steps)
+print('Test accuracy:', accuracy)
+# 1. Define the path to your test dataset
+test_dir = '/content/combined/test' # Replace with your actual test directory
+# 2. Get a list of all image files in the test directory
+image_files = []
+for class_folder in os.listdir(test_dir):
+class_path = os.path.join(test_dir, class_folder)
+for image_file in os.listdir(class_path):
+image_files.append(os.path.join(class_path, image_file))
+# 3. Randomly select an image file
+random_image_path = random.choice(image_files)
+# 4. Load and preprocess the image
+image = load_img(random_image_path, target_size=(256, 256))
+image_array = img_to_array(image) / 255.0
+image_array = np.expand_dims(image_array, axis=0)
+# 5. Make a prediction
+prediction = model.predict(image_array)
+predicted_class = (prediction[0][0] > 0.5).astype(np.uint8)
+# 6. Display the image and prediction
+plt.figure(figsize=(10, 5))
+plt.subplot(1, 2, 1)
+plt.imshow(image)
+plt.title('Random Image')
+plt.axis('off')
+plt.subplot(1, 2, 2)
+plt.imshow(image)
+plt.title(f'Prediction: {"Non-Flood" if predicted_class else "Flood"}')
+plt.axis('off')
+plt.show()
